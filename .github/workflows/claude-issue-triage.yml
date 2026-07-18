@@ -1,0 +1,132 @@
+name: Claude Issue Triage
+
+on:
+  issues:
+    types: [opened, edited]
+
+# Evita triages simultáneos si el issue se edita varias veces seguidas.
+concurrency:
+  group: issue-triage-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  triage:
+    # No triagear issues de bots, ni los que ya invocan a @claude
+    # (esos los atiende .github/workflows/claude.yml).
+    if: |
+      github.event.issue.pull_request == null &&
+      github.actor != 'github-actions[bot]' &&
+      !contains(github.event.issue.body, '@claude') &&
+      !contains(github.event.issue.title, '@claude')
+
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Ensure triage labels exist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          create() { gh label create "$1" --color "$2" --description "$3" --force; }
+          create "bug"                 "d73a4a" "Algo no funciona como debería"
+          create "enhancement"         "a2eeef" "Nueva funcionalidad o mejora"
+          create "documentation"       "0075ca" "README, CLAUDE.md o comentarios"
+          create "question"            "d876e3" "Duda o pedido de aclaración"
+          create "refactor"            "fbca04" "Mejora interna sin cambio de comportamiento"
+          create "area: gameplay"      "1d76db" "Reglas del juego, piezas, colisiones, puntaje"
+          create "area: rendering"     "1d76db" "Canvas, dibujo, ghost piece, next piece"
+          create "area: controls"      "1d76db" "Teclado y manejo de input"
+          create "area: ui"            "1d76db" "HTML, CSS, textos y overlays"
+          create "area: build-ci"      "1d76db" "Workflows, tooling y repositorio"
+          create "priority: alta"      "b60205" "Bloqueante o rompe el juego"
+          create "priority: media"     "e99695" "Importante pero no bloqueante"
+          create "priority: baja"      "f9d0c4" "Cosmético o nice-to-have"
+          create "complejidad: baja"   "c2e0c6" "Cambio localizado, pocas líneas"
+          create "complejidad: media"  "bfd4f2" "Toca varias funciones o archivos"
+          create "complejidad: alta"   "5319e7" "Cambio estructural o de arquitectura"
+          create "needs-info"          "ededed" "Falta información para poder implementarlo"
+
+      - name: Run Claude triage
+        uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: >-
+            --allowedTools "Read,Grep,Glob,Bash(gh issue view:*),Bash(gh issue edit:*),Bash(gh issue comment:*),Bash(gh label list:*),Bash(gh api:*)"
+          prompt: |
+            Sos el triager del repositorio ${{ github.repository }} (Tetris en JavaScript vanilla sobre Canvas).
+            Tenés que analizar el issue #${{ github.event.issue.number }} y dejarlo listo para que
+            después otra persona (o Claude) implemente la solución.
+
+            Pasos:
+
+            1. Leé el issue completo:
+               `gh issue view ${{ github.event.issue.number }} --json title,body,labels,comments`
+
+            2. Leé el código relevante del repo (está en el working directory). Los archivos son
+               `index.html`, `style.css`, `game.js`, y `CLAUDE.md` que documenta la arquitectura.
+               Buscá con Grep/Read las funciones concretas que el issue toca. NO adivines: citá
+               `archivo:línea` real.
+
+            3. Asigná labels. Obtené la lista con `gh label list --limit 100` y usá SOLO labels que
+               ya existan. Elegí exactamente uno de cada grupo cuando corresponda:
+               - tipo: bug | enhancement | documentation | question | refactor
+               - área: una o más `area: *`
+               - prioridad: una `priority: *`
+               - complejidad: una `complejidad: *`
+               - agregá `needs-info` si falta información clave para implementar.
+               Aplicalos con:
+               `gh issue edit ${{ github.event.issue.number }} --add-label "bug" --add-label "area: gameplay" ...`
+               Si el issue ya tiene labels que ya no aplican, quitalos con `--remove-label`.
+
+            4. Publicá el diagnóstico como comentario, en ESPAÑOL, con este formato exacto:
+
+               <!-- claude-triage -->
+               ## 🔍 Diagnóstico automático
+
+               **Resumen:** (1-2 frases de qué se pide o qué falla)
+
+               **Tipo:** ... · **Prioridad:** ... · **Complejidad:** ...
+
+               ### Análisis
+               (Qué está pasando y por qué, con referencias a `game.js:123`, nombres de funciones,
+               y el acoplamiento relevante — p.ej. índice de pieza == índice de color, canvas
+               hardcodeado en el HTML, ausencia de tabla de kicks SRS.)
+
+               ### Archivos y funciones a tocar
+               - `game.js:NN` — `nombreFuncion()` — qué habría que cambiar
+               - ...
+
+               ### Enfoque propuesto
+               1. ...
+               2. ...
+
+               ### Criterios de aceptación
+               - [ ] ...
+
+               ### Riesgos y efectos colaterales
+               (Qué se puede romper. Recordá que no hay tests: la verificación es abrir
+               `index.html` y jugar. Indicá qué probar a mano.)
+
+               ### Información faltante
+               (Solo si pusiste `needs-info`: preguntas concretas al autor del issue.)
+
+            5. Idempotencia: si ya existe un comentario tuyo con el marcador `<!-- claude-triage -->`
+               (esto pasa cuando el issue se edita), EDITALO en lugar de crear uno nuevo, usando
+               `gh issue comment ${{ github.event.issue.number }} --edit-last --body-file <archivo>`.
+               Si no existe, creá uno nuevo con `--body-file`.
+
+            Reglas:
+            - No modifiques código ni abras PRs. Tu único output son labels + el comentario.
+            - Escribí el cuerpo del comentario a un archivo temporal y usá `--body-file` para no
+              pelearte con el escapeo del shell.
+            - Si el issue es vago, decilo abiertamente y pedí lo que falta en vez de inventar un plan.
