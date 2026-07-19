@@ -50,6 +50,13 @@ body[data-theme="light"] {
   --grid-color: #d8d8e4;
 }
 
+/* La skin Neón necesita tablero negro en ambos temas. Misma especificidad que
+   body[data-theme="light"], así que debe ir después para ganar. */
+body[data-skin="neon"] {
+  --board-bg: #05050a;
+  --grid-color: #1c1c2c;
+}
+
 body {
   background: var(--bg);
   color: var(--text);
@@ -181,6 +188,24 @@ body {
   border: 1px solid var(--board-border);
   background: var(--board-bg);
   border-radius: 4px;
+}
+
+/* ---- Selector de skin ---- */
+#skin-select {
+  width: 100%;
+  background: var(--kbd-bg);
+  color: var(--text);
+  border: 1px solid var(--kbd-border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+#skin-select:focus-visible {
+  outline: 2px solid var(--value-color);
+  outline-offset: 2px;
 }
 
 /* ---- Controles ---- */

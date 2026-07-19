@@ -37,6 +37,138 @@ const HOLE = 9;
 // Extra por cada línea limpiada que contenga un hueco de tuerca.
 const NUT_BONUS = 200;
 
+// ---- Skins ----
+// Each skin supplies its own palette (same indices as COLORS: null at 0 and 9)
+// and its own block-drawing function, plus an optional drawHole() override.
+// drawBlock() delegates to the active skin. Draw functions receive pixel
+// coordinates and need not restore ctx state: drawBlock() wraps every call in
+// save()/restore().
+
+// Rounded rect with a fillRect fallback for browsers without ctx.roundRect.
+// The radius is clamped so it never exceeds half of either side.
+function fillRounded(context, x, y, w, h, r) {
+  if (typeof context.roundRect === 'function') {
+    context.beginPath();
+    context.roundRect(x, y, w, h, Math.min(r, w / 2, h / 2));
+    context.fill();
+  } else {
+    context.fillRect(x, y, w, h);
+  }
+}
+
+// Default hollow ring for the nut's hole, tinted with the skin's nut color.
+function baseDrawHole(context, px, py, size, color) {
+  context.strokeStyle = color;
+  context.lineWidth = Math.max(2, size * 0.08);
+  context.beginPath();
+  context.arc(px + size / 2, py + size / 2, size * 0.3, 0, Math.PI * 2);
+  context.stroke();
+}
+
+const SKINS = {
+  retro: {
+    palette: [...COLORS],
+    draw(context, px, py, color, size) {
+      context.fillStyle = color;
+      context.fillRect(px + 1, py + 1, size - 2, size - 2);
+      // highlight
+      context.fillStyle = 'rgba(255,255,255,0.12)';
+      context.fillRect(px + 1, py + 1, size - 2, 4);
+    },
+  },
+
+  neon: {
+    palette: [
+      null,
+      '#00e5ff', // I
+      '#ffea00', // O
+      '#e040fb', // T
+      '#00e676', // S
+      '#ff1744', // Z
+      '#2979ff', // J
+      '#ff9100', // L
+      '#cfd8dc', // nut
+      null,      // HOLE
+    ],
+    draw(context, px, py, color, size) {
+      context.shadowBlur = size * 0.5;
+      context.shadowColor = color;
+      context.fillStyle = color;
+      context.fillRect(px + 2, py + 2, size - 4, size - 4);
+      context.shadowBlur = 0;
+      context.fillStyle = 'rgba(255,255,255,0.4)';
+      context.fillRect(px + 2, py + 2, size - 4, Math.max(1, size * 0.07));
+    },
+    drawHole(context, px, py, size, color) {
+      context.shadowBlur = size * 0.4;
+      context.shadowColor = color;
+      baseDrawHole(context, px, py, size, color);
+    },
+  },
+
+  pastel: {
+    palette: [
+      null,
+      '#a8e6f0', // I
+      '#ffe9a8', // O
+      '#dcc0e8', // T
+      '#b8e6c0', // S
+      '#f5b8b8', // Z
+      '#b0cff5', // J
+      '#ffd6a8', // L
+      '#d5dde2', // nut
+      null,      // HOLE
+    ],
+    draw(context, px, py, color, size) {
+      const r = Math.max(2, size * 0.24);
+      context.fillStyle = color;
+      fillRounded(context, px + 1, py + 1, size - 2, size - 2, r);
+      context.fillStyle = 'rgba(255,255,255,0.45)';
+      fillRounded(context, px + 3, py + 3, size - 6, Math.max(2, size * 0.2), r * 0.6);
+    },
+  },
+
+  pixel: {
+    palette: [
+      null,
+      '#2ec4d6', // I
+      '#e8b422', // O
+      '#9c4dcc', // T
+      '#4caf50', // S
+      '#d32f2f', // Z
+      '#1976d2', // J
+      '#f57c00', // L
+      '#78909c', // nut
+      null,      // HOLE
+    ],
+    draw(context, px, py, color, size) {
+      const p = Math.max(1, Math.round(size / 10)); // texture pixel unit
+      context.fillStyle = color;
+      context.fillRect(px, py, size, size);
+      // lit top/left bevel
+      context.fillStyle = 'rgba(255,255,255,0.35)';
+      context.fillRect(px, py, size, p);
+      context.fillRect(px, py, p, size);
+      // shaded bottom/right bevel
+      context.fillStyle = 'rgba(0,0,0,0.35)';
+      context.fillRect(px, py + size - p, size, p);
+      context.fillRect(px + size - p, py, p, size);
+      // dithered speckles
+      context.fillStyle = 'rgba(255,255,255,0.2)';
+      context.fillRect(px + p * 2, py + p * 2, p, p);
+      context.fillRect(px + p * 3, py + p * 4, p, p);
+      context.fillStyle = 'rgba(0,0,0,0.2)';
+      context.fillRect(px + size - p * 3, py + size - p * 3, p, p);
+      context.fillRect(px + size - p * 4, py + size - p * 5, p, p);
+    },
+  },
+};
+
+const SKIN_STORAGE_KEY = 'tetris-skin';
+const DEFAULT_SKIN = 'retro';
+let activeSkin = DEFAULT_SKIN;
+let currentSkin = SKINS[DEFAULT_SKIN];
+
 const canvas = document.getElementById('board');
 const ctx = canvas.getContext('2d');
 const nextCanvas = document.getElementById('next-canvas');
@@ -49,6 +181,7 @@ const overlayTitle = document.getElementById('overlay-title');
 const overlayScore = document.getElementById('overlay-score');
 const restartBtn = document.getElementById('restart-btn');
 const themeToggle = document.getElementById('theme-toggle');
+const skinSelect = document.getElementById('skin-select');
 
 const THEME_STORAGE_KEY = 'tetris-theme';
 
@@ -171,31 +304,22 @@ function updateHUD() {
   levelEl.textContent = level;
 }
 
-function drawHole(context, x, y, size, alpha) {
-  context.globalAlpha = alpha ?? 1;
-  context.strokeStyle = COLORS[8];
-  context.lineWidth = Math.max(2, size * 0.08);
-  context.beginPath();
-  context.arc(x * size + size / 2, y * size + size / 2, size * 0.3, 0, Math.PI * 2);
-  context.stroke();
-  context.globalAlpha = 1;
-}
-
 function drawBlock(context, x, y, colorIndex, size, alpha) {
   if (!colorIndex) return;
-  if (colorIndex === HOLE) {
-    drawHole(context, x, y, size, alpha);
-    return;
-  }
-  const color = COLORS[colorIndex];
-  if (!color) return;
+  const skin = currentSkin;
+  const px = x * size;
+  const py = y * size;
+  // save/restore keeps skin-specific state (shadowBlur, lineWidth, alpha...)
+  // from leaking into the rest of the frame.
+  context.save();
   context.globalAlpha = alpha ?? 1;
-  context.fillStyle = color;
-  context.fillRect(x * size + 1, y * size + 1, size - 2, size - 2);
-  // highlight
-  context.fillStyle = 'rgba(255,255,255,0.12)';
-  context.fillRect(x * size + 1, y * size + 1, size - 2, 4);
-  context.globalAlpha = 1;
+  if (colorIndex === HOLE) {
+    (skin.drawHole || baseDrawHole)(context, px, py, size, skin.palette[8]);
+  } else {
+    const color = skin.palette[colorIndex];
+    if (color) skin.draw(context, px, py, color, size);
+  }
+  context.restore();
 }
 
 function drawGrid() {
@@ -289,9 +413,24 @@ function loop(ts) {
   animId = requestAnimationFrame(loop);
 }
 
+// --grid-color depends on both the theme and the skin, so both re-read it.
+function refreshGridColor() {
+  gridColor = getComputedStyle(document.body).getPropertyValue('--grid-color').trim();
+}
+
+// Repintado manual: draw() sólo corre dentro del loop (parado en pausa y en
+// game over) y drawNext() sólo se llama en spawn(). Cambiar tema o skin tiene
+// que forzar el redibujado de ambos lienzos.
+function repaint() {
+  if (!board || !next) return; // todavía sin partida: init() dibujará
+  draw();
+  drawNext();
+}
+
 function applyTheme(theme) {
   document.body.dataset.theme = theme;
-  gridColor = getComputedStyle(document.body).getPropertyValue('--grid-color').trim();
+  refreshGridColor();
+  repaint();
   themeToggle.checked = theme === 'light';
   try {
     localStorage.setItem(THEME_STORAGE_KEY, theme);
@@ -308,6 +447,31 @@ function initTheme() {
     // localStorage no disponible: arrancar en modo oscuro por defecto
   }
   applyTheme(theme);
+}
+
+function applySkin(skin) {
+  if (!Object.prototype.hasOwnProperty.call(SKINS, skin)) skin = DEFAULT_SKIN;
+  activeSkin = skin;
+  currentSkin = SKINS[skin];
+  document.body.dataset.skin = skin;
+  refreshGridColor();
+  repaint();
+  skinSelect.value = skin;
+  try {
+    localStorage.setItem(SKIN_STORAGE_KEY, skin);
+  } catch (e) {
+    // localStorage no disponible: la preferencia simplemente no persiste
+  }
+}
+
+function initSkin() {
+  let skin = DEFAULT_SKIN;
+  try {
+    skin = localStorage.getItem(SKIN_STORAGE_KEY) || DEFAULT_SKIN;
+  } catch (e) {
+    // localStorage no disponible: arrancar con la skin por defecto
+  }
+  applySkin(skin);
 }
 
 function init() {
@@ -360,5 +524,11 @@ themeToggle.addEventListener('change', () => {
   themeToggle.blur();
 });
 
+skinSelect.addEventListener('change', () => {
+  applySkin(skinSelect.value);
+  skinSelect.blur();
+});
+
 initTheme();
+initSkin();
 init();
