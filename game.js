@@ -13,6 +13,8 @@ const COLORS = [
   '#e57373', // Z - red
   '#64b5f6', // J - blue
   '#ffb74d', // L - orange
+  '#b0bec5', // nut - steel
+  null,      // HOLE - no color, drawn as a hollow ring
 ];
 
 const PIECES = [
@@ -24,9 +26,16 @@ const PIECES = [
   [[5,5,0],[0,5,5],[0,0,0]],                  // Z
   [[6,0,0],[6,6,6],[0,0,0]],                  // J
   [[0,0,7],[7,7,7],[0,0,0]],                  // L
+  [[8,8,8],[8,9,8],[8,8,8]],                  // tuerca (nut)
 ];
 
 const LINE_SCORES = [0, 100, 300, 500, 800];
+
+// El hueco de la tuerca: cuenta como celda ocupada en collide()/clearLines() —
+// nada puede entrar nunca en él — pero se dibuja como un anillo vacío.
+const HOLE = 9;
+// Extra por cada línea limpiada que contenga un hueco de tuerca.
+const NUT_BONUS = 200;
 
 const canvas = document.getElementById('board');
 const ctx = canvas.getContext('2d');
@@ -51,7 +60,7 @@ function createBoard() {
 }
 
 function randomPiece() {
-  const type = Math.floor(Math.random() * 7) + 1;
+  const type = Math.floor(Math.random() * 8) + 1;
   const shape = PIECES[type].map(row => [...row]);
   return { type, shape, x: Math.floor(COLS / 2) - Math.floor(shape[0].length / 2), y: 0 };
 }
@@ -99,8 +108,10 @@ function merge() {
 
 function clearLines() {
   let cleared = 0;
+  let holeRows = 0;
   for (let r = ROWS - 1; r >= 0; r--) {
     if (board[r].every(v => v !== 0)) {
+      if (board[r].includes(HOLE)) holeRows++;
       board.splice(r, 1);
       board.unshift(new Array(COLS).fill(0));
       cleared++;
@@ -109,7 +120,7 @@ function clearLines() {
   }
   if (cleared) {
     lines += cleared;
-    score += (LINE_SCORES[cleared] || 0) * level;
+    score += ((LINE_SCORES[cleared] || 0) + holeRows * NUT_BONUS) * level;
     level = Math.floor(lines / 10) + 1;
     dropInterval = Math.max(100, 1000 - (level - 1) * 90);
     updateHUD();
@@ -160,9 +171,24 @@ function updateHUD() {
   levelEl.textContent = level;
 }
 
+function drawHole(context, x, y, size, alpha) {
+  context.globalAlpha = alpha ?? 1;
+  context.strokeStyle = COLORS[8];
+  context.lineWidth = Math.max(2, size * 0.08);
+  context.beginPath();
+  context.arc(x * size + size / 2, y * size + size / 2, size * 0.3, 0, Math.PI * 2);
+  context.stroke();
+  context.globalAlpha = 1;
+}
+
 function drawBlock(context, x, y, colorIndex, size, alpha) {
   if (!colorIndex) return;
+  if (colorIndex === HOLE) {
+    drawHole(context, x, y, size, alpha);
+    return;
+  }
   const color = COLORS[colorIndex];
+  if (!color) return;
   context.globalAlpha = alpha ?? 1;
   context.fillStyle = color;
   context.fillRect(x * size + 1, y * size + 1, size - 2, size - 2);
