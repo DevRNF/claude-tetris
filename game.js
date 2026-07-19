@@ -49,10 +49,25 @@ const overlayTitle = document.getElementById('overlay-title');
 const overlayScore = document.getElementById('overlay-score');
 const restartBtn = document.getElementById('restart-btn');
 const themeToggle = document.getElementById('theme-toggle');
+const scoresPanel = document.getElementById('scores-panel');
+const scoresBody = document.getElementById('scores-body');
+const scoresBests = document.getElementById('scores-bests');
+const nameForm = document.getElementById('name-form');
+const playerNameInput = document.getElementById('player-name');
+const resetScoresBtn = document.getElementById('reset-scores-btn');
 
 const THEME_STORAGE_KEY = 'tetris-theme';
+const HIGHSCORES_STORAGE_KEY = 'tetris-highscores';
+const MAX_HIGHSCORES = 5;
+const MAX_NAME_LENGTH = 12;
+const DEFAULT_NAME = 'Anónimo';
+// Combo chain bonus: only awarded from the second consecutive clear onwards.
+const COMBO_BONUS = 50;
 
 let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId;
+let combo, maxCombo;
+// The game does not run until the player presses "Jugar" on the start screen.
+let started = false;
 let gridColor = '#22222e';
 
 function createBoard() {
@@ -125,6 +140,7 @@ function clearLines() {
     dropInterval = Math.max(100, 1000 - (level - 1) * 90);
     updateHUD();
   }
+  return cleared;
 }
 
 function ghostY() {
@@ -152,7 +168,15 @@ function softDrop() {
 
 function lockPiece() {
   merge();
-  clearLines();
+  const cleared = clearLines();
+  if (cleared > 0) {
+    combo++;
+    if (combo > 1) score += combo * COMBO_BONUS * level;
+    if (combo > maxCombo) maxCombo = combo;
+    updateHUD();
+  } else {
+    combo = 0;
+  }
   spawn();
 }
 
@@ -250,16 +274,173 @@ function drawNext() {
       drawBlock(nextCtx, offX + c, offY + r, shape[r][c], NB);
 }
 
+/* ---------- Highscore table (localStorage) ---------- */
+
+function sanitizeName(value) {
+  const clean = String(value == null ? '' : value)
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, MAX_NAME_LENGTH);
+  return clean || DEFAULT_NAME;
+}
+
+function toCount(value) {
+  return Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0;
+}
+
+function isValidEntry(entry) {
+  return !!entry
+    && typeof entry === 'object'
+    && typeof entry.name === 'string'
+    && Number.isFinite(entry.score);
+}
+
+// Never throws: a missing or corrupt localStorage degrades to an empty list.
+function loadHighscores() {
+  let raw = null;
+  try {
+    raw = localStorage.getItem(HIGHSCORES_STORAGE_KEY);
+  } catch (e) {
+    return [];
+  }
+  if (!raw) return [];
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (e) {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  return parsed
+    .filter(isValidEntry)
+    .map(entry => ({
+      name: sanitizeName(entry.name),
+      score: toCount(entry.score),
+      lines: toCount(entry.lines),
+      maxCombo: toCount(entry.maxCombo),
+    }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, MAX_HIGHSCORES);
+}
+
+function saveHighscores(list) {
+  try {
+    localStorage.setItem(HIGHSCORES_STORAGE_KEY, JSON.stringify(list));
+  } catch (e) {
+    // localStorage unavailable: highscores simply do not persist
+  }
+}
+
+function qualifiesForHighscores(value) {
+  const list = loadHighscores();
+  return list.length < MAX_HIGHSCORES || value > list[list.length - 1].score;
+}
+
+// Returns the new entry's rank in the top list, or -1 if it did not make it.
+function addHighscore(entry) {
+  const list = loadHighscores();
+  list.push(entry);
+  // Array.prototype.sort is stable: on a tie the new entry stays behind the old one.
+  list.sort((a, b) => b.score - a.score);
+  const rank = list.indexOf(entry);
+  saveHighscores(list.slice(0, MAX_HIGHSCORES));
+  return rank < MAX_HIGHSCORES ? rank : -1;
+}
+
+function appendCell(row, text, withTooltip) {
+  const cell = document.createElement('td');
+  // Always textContent: the name is player-supplied input.
+  cell.textContent = text;
+  if (withTooltip) cell.title = text;
+  row.appendChild(cell);
+}
+
+function renderHighscores(highlightIndex) {
+  const list = loadHighscores();
+  scoresBody.textContent = '';
+
+  if (!list.length) {
+    const row = document.createElement('tr');
+    const cell = document.createElement('td');
+    cell.colSpan = 5;
+    cell.className = 'empty-row';
+    cell.textContent = 'Todavía no hay records';
+    row.appendChild(cell);
+    scoresBody.appendChild(row);
+    scoresBests.textContent = '';
+    return;
+  }
+
+  list.forEach((entry, i) => {
+    const row = document.createElement('tr');
+    if (i === highlightIndex) row.className = 'highlight';
+    appendCell(row, String(i + 1));
+    appendCell(row, entry.name, true);
+    appendCell(row, entry.score.toLocaleString());
+    appendCell(row, String(entry.lines));
+    appendCell(row, String(entry.maxCombo));
+    scoresBody.appendChild(row);
+  });
+
+  const bestCombo = list.reduce((max, e) => Math.max(max, e.maxCombo), 0);
+  const bestLines = list.reduce((max, e) => Math.max(max, e.lines), 0);
+  scoresBests.textContent = `Mejor combo: ${bestCombo} · Máx. líneas: ${bestLines}`;
+}
+
+function showStartScreen() {
+  overlayTitle.textContent = 'TETRIS';
+  overlayScore.textContent = 'Pulsa Jugar para empezar';
+  restartBtn.textContent = 'Jugar';
+  nameForm.classList.add('hidden');
+  scoresPanel.classList.remove('hidden');
+  renderHighscores(-1);
+  overlay.classList.remove('hidden');
+}
+
+function saveCurrentScore() {
+  const entry = {
+    name: sanitizeName(playerNameInput.value),
+    score,
+    lines,
+    maxCombo,
+  };
+  const rank = addHighscore(entry);
+  nameForm.classList.add('hidden');
+  renderHighscores(rank);
+}
+
+function resetHighscores() {
+  if (!window.confirm('¿Seguro que quieres borrar todos los records?')) return;
+  try {
+    localStorage.removeItem(HIGHSCORES_STORAGE_KEY);
+  } catch (e) {
+    // localStorage unavailable: there is nothing persisted to clear
+  }
+  nameForm.classList.add('hidden');
+  renderHighscores(-1);
+}
+
+/* ---------------------------------------------------- */
+
 function endGame() {
   gameOver = true;
   cancelAnimationFrame(animId);
   overlayTitle.textContent = 'GAME OVER';
-  overlayScore.textContent = `Puntuación: ${score.toLocaleString()}`;
+  overlayScore.textContent =
+    `Puntuación: ${score.toLocaleString()} · Líneas: ${lines} · Mejor combo: ${maxCombo}`;
+  restartBtn.textContent = 'Reiniciar';
+  scoresPanel.classList.remove('hidden');
+
+  const qualifies = qualifiesForHighscores(score);
+  nameForm.classList.toggle('hidden', !qualifies);
+  renderHighscores(-1);
   overlay.classList.remove('hidden');
+  // Keep whatever name was typed before: repeat players do not retype it.
+  if (qualifies) playerNameInput.focus();
 }
 
 function togglePause() {
-  if (gameOver) return;
+  if (!started || gameOver) return;
   paused = !paused;
   if (!paused) {
     lastTime = performance.now();
@@ -268,6 +449,8 @@ function togglePause() {
     cancelAnimationFrame(animId);
     overlayTitle.textContent = 'PAUSA';
     overlayScore.textContent = '';
+    restartBtn.textContent = 'Reiniciar';
+    scoresPanel.classList.add('hidden');
     overlay.classList.remove('hidden');
   }
 }
@@ -317,20 +500,29 @@ function init() {
   level = 1;
   paused = false;
   gameOver = false;
+  combo = 0;
+  maxCombo = 0;
+  started = true;
   dropInterval = 1000;
   dropAccum = 0;
   lastTime = performance.now();
   next = randomPiece();
-  spawn();
-  updateHUD();
+  // Reset the overlay before spawn(): spawn() may call endGame(), which shows it again.
+  restartBtn.textContent = 'Reiniciar';
+  scoresPanel.classList.add('hidden');
+  nameForm.classList.add('hidden');
   overlay.classList.add('hidden');
   cancelAnimationFrame(animId);
-  animId = requestAnimationFrame(loop);
+  spawn();
+  updateHUD();
+  if (!gameOver) animId = requestAnimationFrame(loop);
 }
 
 document.addEventListener('keydown', e => {
+  // Do not steal keystrokes while the player types a name into the highscore form.
+  if (e.target instanceof HTMLInputElement) return;
   if (e.code === 'KeyP') { togglePause(); return; }
-  if (paused || gameOver) return;
+  if (!started || paused || gameOver) return;
   switch (e.code) {
     case 'ArrowLeft':
       if (!collide(current.shape, current.x - 1, current.y)) current.x--;
@@ -355,10 +547,17 @@ document.addEventListener('keydown', e => {
 
 restartBtn.addEventListener('click', init);
 
+nameForm.addEventListener('submit', e => {
+  e.preventDefault();
+  saveCurrentScore();
+});
+
+resetScoresBtn.addEventListener('click', resetHighscores);
+
 themeToggle.addEventListener('change', () => {
   applyTheme(themeToggle.checked ? 'light' : 'dark');
   themeToggle.blur();
 });
 
 initTheme();
-init();
+showStartScreen();

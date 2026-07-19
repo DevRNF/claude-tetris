@@ -25,6 +25,18 @@
   --restart-color: #0f0f17;
   --restart-hover: #9bbdff;
   --grid-color: #22222e;
+  --scores-bg: rgba(26, 26, 37, 0.85);
+  --scores-border: #2a2a3a;
+  --scores-head: #555570;
+  --scores-row: #c8c8d8;
+  --scores-highlight-bg: rgba(122, 162, 247, 0.22);
+  --scores-highlight-color: #9bbdff;
+  --input-bg: #1a1a25;
+  --input-border: #3a3a5a;
+  --input-color: #e0e0e0;
+  --secondary-color: #9a9ab5;
+  --secondary-border: #3a3a5a;
+  --secondary-hover-bg: rgba(122, 162, 247, 0.15);
 }
 
 body[data-theme="light"] {
@@ -48,6 +60,18 @@ body[data-theme="light"] {
   --restart-color: #ffffff;
   --restart-hover: #5c7ce0;
   --grid-color: #d8d8e4;
+  --scores-bg: rgba(255, 255, 255, 0.9);
+  --scores-border: #c8c8d8;
+  --scores-head: #6b6b85;
+  --scores-row: #33334a;
+  --scores-highlight-bg: rgba(59, 91, 219, 0.16);
+  --scores-highlight-color: #2c48b8;
+  --input-bg: #ffffff;
+  --input-border: #c0c0d0;
+  --input-color: #1a1a25;
+  --secondary-color: #5a5a75;
+  --secondary-border: #c0c0d0;
+  --secondary-hover-bg: rgba(59, 91, 219, 0.1);
 }
 
 body {
@@ -262,4 +286,153 @@ kbd {
 
 #restart-btn:hover {
   background: var(--restart-hover);
+}
+
+/* ---- Tabla de records ---- */
+.scores-panel {
+  width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--scores-bg);
+  border: 1px solid var(--scores-border);
+  border-radius: 6px;
+}
+
+.scores-panel.hidden,
+.name-form.hidden {
+  display: none;
+}
+
+.scores-panel .label {
+  text-align: left;
+}
+
+.scores-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 12px;
+  color: var(--scores-row);
+}
+
+.scores-table th {
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 9px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--scores-head);
+  text-align: right;
+  padding: 2px 4px;
+  border-bottom: 1px solid var(--scores-border);
+}
+
+.scores-table th:nth-child(2),
+.scores-table td:nth-child(2) {
+  text-align: left;
+}
+
+.scores-table td {
+  padding: 3px 4px;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.scores-table td:nth-child(2) {
+  max-width: 90px;
+}
+
+.scores-table tr.highlight td {
+  background: var(--scores-highlight-bg);
+  color: var(--scores-highlight-color);
+  font-weight: 700;
+}
+
+.scores-table tr.highlight td:first-child {
+  border-radius: 3px 0 0 3px;
+}
+
+.scores-table tr.highlight td:last-child {
+  border-radius: 0 3px 3px 0;
+}
+
+.scores-table td.empty-row {
+  text-align: center;
+  color: var(--scores-head);
+  padding: 10px 4px;
+}
+
+.scores-bests {
+  font-size: 11px;
+  color: var(--scores-head);
+  text-align: left;
+}
+
+/* ---- Formulario de nombre ---- */
+.name-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--scores-border);
+}
+
+.name-form-row {
+  display: flex;
+  gap: 6px;
+}
+
+#player-name {
+  flex: 1;
+  min-width: 0;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  color: var(--input-color);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 13px;
+  font-family: inherit;
+}
+
+#player-name:focus-visible {
+  outline: 2px solid var(--value-color);
+  outline-offset: 1px;
+}
+
+#save-score-btn {
+  background: var(--restart-bg);
+  color: var(--restart-color);
+  border: none;
+  border-radius: 4px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+#save-score-btn:hover {
+  background: var(--restart-hover);
+}
+
+.secondary-btn {
+  align-self: center;
+  background: transparent;
+  color: var(--secondary-color);
+  border: 1px solid var(--secondary-border);
+  border-radius: 4px;
+  padding: 5px 12px;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.secondary-btn:hover {
+  background: var(--secondary-hover-bg);
+  color: var(--value-color);
 }
